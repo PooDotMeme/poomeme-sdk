@@ -16,7 +16,7 @@ poo publish             publish a deployed factory to a module registry
 Node 22 or newer, and [Foundry](https://getfoundry.sh). Then:
 
 ```
-npm install -g @poo.meme/cli
+npm install -g @poomeme/sdk
 poo init my-module
 ```
 
