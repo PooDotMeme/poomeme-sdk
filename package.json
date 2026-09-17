@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "description": "Build, test and check a POO.MEME module against a real platform on your own machine.",
   "type": "module",
-  "license": "MIT",
+  "license": "(MIT AND GPL-3.0-or-later)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PooDotMeme/poomeme-sdk.git"
+  },
   "engines": {
     "node": ">=22"
   },
