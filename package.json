@@ -1,0 +1,27 @@
+{
+  "name": "@poo.meme/cli",
+  "version": "0.1.0",
+  "description": "Build, test and check a POO.MEME module against a real platform on your own machine.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "poo": "bin/poo.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "template",
+    "build/poo-sdk",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "assemble": "node bin/poo.mjs assemble",
+    "prepack": "node bin/poo.mjs assemble"
+  }
+}
