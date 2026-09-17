@@ -11,6 +11,7 @@ import {
 } from "@poo/devkit/PlatformHarness.sol";
 import {ConformanceLaunchFixtureFactory} from "@poo/devkit/fixtures/launch/ConformanceLaunchFixtureFactory.sol";
 import {MockERC20} from "@poo/devkit/mocks/MockERC20.sol";
+import {TokenSaltLib} from "@poo/devkit/TokenSaltLib.sol";
 import {IPooLaunchFactory} from "@launch-module/IPooLaunchFactory.sol";
 import {IPooToken} from "@standard/IPooToken.sol";
 import {QuoteKind} from "@standard/ManifestTypes.sol";
@@ -117,9 +118,16 @@ abstract contract PooScript is Script {
         CreatorTaxTerms memory tax;
         tax.payeeCap = TAX_PAYEE_CAP;
 
+        // Every POO.MEME token's address ends 8888 and the factory refuses one
+        // that does not, so the salt is searched rather than chosen. The seed
+        // is whatever `tokenTerms` returned, so overriding it still decides
+        // where the search starts.
+        TokenTerms memory terms = tokenTerms(p, g.quote);
+        terms.salt = TokenSaltLib.mine(p.tokenFactory, msg.sender, terms.salt);
+
         return p.tokenFactory
             .create(
-                tokenTerms(p, g.quote),
+                terms,
                 Metadata({description: "", website: "", x: "", telegram: ""}),
                 LaunchChoice({entryId: g.launchEntry, supply: TOTAL_SUPPLY, config: "", buyBps: 0, sellBps: 0}),
                 chosen,

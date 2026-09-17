@@ -1,7 +1,13 @@
-# poo
+# POO.MEME Module SDK
+
+The `poo` command.
 
 Build a POO.MEME module on your own machine, against the real platform, with nothing running but
 Foundry.
+
+POO.MEME is live on **BNB Smart Chain** (chain id 56) and **Robinhood Chain** (chain id 4663). A
+module is published to the registry on the chain you name, and a token on that chain can then
+carry it; `poo publish` takes the chain's own RPC endpoint.
 
 ```
 poo init my-module      scaffold a module project that builds and tests offline
