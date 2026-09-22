@@ -133,7 +133,7 @@ abstract contract PooScript is Script {
         chosenTerms.salt = TokenSaltLib.mine(p.tokenFactory, msg.sender, chosenTerms.salt);
 
         return p.tokenFactory
-            .create(chosenTerms, Metadata({description: "", website: "", x: "", telegram: ""}), chosen, tax, signedBlueprint);
+            .create(chosenTerms, Metadata({description: "", website: "", x: "", telegram: "", whitelistUrl: ""}), chosen, tax, signedBlueprint);
     }
 
     function _bindLaunch(Platform memory p, Graph memory g) private returns (address launch) {
