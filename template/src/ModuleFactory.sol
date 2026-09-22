@@ -27,8 +27,8 @@ import {
     Widget
 } from "@standard/ManifestTypes.sol";
 import {NotAContract} from "@standard/PooErrors.sol";
-import {IPooTokenModuleFactory} from "@token-module/IPooTokenModuleFactory.sol";
-import {TokenModuleContext} from "@token-module/TokenModuleTypes.sol";
+import {IPooTokenModuleFactory} from "@standard/token-module/IPooTokenModuleFactory.sol";
+import {TokenModuleContext} from "@standard/token-module/TokenModuleTypes.sol";
 import {__MODULE__} from "@modules/__MODULE__.sol";
 
 contract __MODULE__Factory is IPooTokenModuleFactory {
@@ -84,9 +84,7 @@ contract __MODULE__Factory is IPooTokenModuleFactory {
             quote: QuoteKind.Any,
             minTotalBps: 0,
             unique: true,
-            minSupplyBps: 0,
-            taxAsset: TaxAsset.None,
-            acceptsSupply: false
+            taxAsset: TaxAsset.None
         });
         m.seeds = new Seed[](0);
         m.trackGas = TRACK_GAS;

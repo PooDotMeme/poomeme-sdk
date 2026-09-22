@@ -16,7 +16,6 @@ export const VENDORED = [
 const PLACEMENT = [
   ["contracts/src/", "src/"],
   ["contracts/devkit/", "devkit/"],
-  ["modules/fixtures/", "devkit/fixtures/"],
 ];
 
 const TIER_RANK = { surface: 0, platform: 1, devkit: 2 };
@@ -27,26 +26,34 @@ const TIER_AUDIENCE = {
   devkit: "test-only devkit",
 };
 
+// The roots that DEFINE the surface, by what they import. Fixed Presale was
+// one of them until 2026-09-20; the launch modes are platform-only
+// (`contracts/src/launch/`, founder ruling) and publish nothing, so the surface
+// is what a TOKEN-module author's own sources reach — and since the 2026-09-21
+// layout that is `contracts/src/standard/` alone, the one prefix a stranger's
+// sources may name. What a mode promises the platform
+// (`contracts/src/launch/mode/`) still ships, because the devkit's mocks
+// implement it, but as platform tier, through the harness, rather than as a
+// root a module compiles against; nothing else under `contracts/src/launch/`
+// may ever be claimed (`closureViolations` below throws on it).
 const SURFACE_ROOTS = [
-  "modules/src/token/holder-rewards/HolderRewards.sol",
-  "modules/src/token/holder-rewards/HolderRewardsFactory.sol",
-  "modules/src/launch/fixed-presale/FixedPresale.sol",
-  "modules/src/launch/fixed-presale/FixedPresaleFactory.sol",
+  "contracts/modules/src/holder-rewards/HolderRewards.sol",
+  "contracts/modules/src/holder-rewards/HolderRewardsFactory.sol",
 ];
 
 const SURFACE_ALSO = [
-  "contracts/src/launch-module/IPooLaunchInstaller.sol",
   "contracts/src/standard/IPooFactoryDeveloper.sol",
+  "contracts/src/standard/ManifestFieldsLib.sol",
   "contracts/src/standard/IPooProbeHost.sol",
-  "contracts/src/token-module/hooks/IPooOperateOnSellHook.sol",
-  "contracts/src/token-module/hooks/IPooReceiveHook.sol",
-  "contracts/src/token-module/hooks/IPooTrackHook.sol",
-  "contracts/src/token-module/hooks/IPooGateHook.sol",
+  "contracts/src/standard/token-module/hooks/IPooOperateOnSellHook.sol",
+  "contracts/src/standard/token-module/hooks/IPooReceiveHook.sol",
+  "contracts/src/standard/token-module/hooks/IPooTrackHook.sol",
+  "contracts/src/standard/token-module/hooks/IPooGateHook.sol",
 ];
 
 const DEVKIT_ROOTS = ["contracts/devkit", "contracts/devkit/mocks"];
 
-const DEVKIT_ALSO = ["modules/fixtures/launch/ConformanceLaunchFixtureFactory.sol"];
+const DEVKIT_ALSO = [];
 
 const DEVKIT_WITHHELD = [
   "contracts/devkit/mocks/MockModule.sol",
@@ -55,18 +62,20 @@ const DEVKIT_WITHHELD = [
   "contracts/devkit/mocks/Successors.sol",
 ];
 
-const SURFACE_DIRS = [
-  "contracts/src/standard/",
-  "contracts/src/launch-module/",
-  "contracts/src/token-module/",
-];
+const SURFACE_DIRS = ["contracts/src/standard/"];
 
-const CALLER_OWNED = ["modules/src/"];
+const CALLER_OWNED = ["contracts/modules/src/"];
 
 const SURFACE_CONTRACTS = ["contracts/src/standard/PooBlueprint.sol"];
 
-const DEVKIT_WITHIN = ["contracts/devkit/", "modules/fixtures/"];
+const DEVKIT_WITHIN = ["contracts/devkit/"];
 const PLATFORM_WITHIN = ["contracts/src/"];
+
+// A launch mode is never published: the only launch directory the package may
+// carry is what a mode promises the platform. Anything else under
+// `contracts/src/launch/` reaching the selection is a leak, however it got there.
+const LAUNCH_DIR = "contracts/src/launch/";
+const LAUNCH_SHIPPED = "contracts/src/launch/mode/";
 
 const TOP_LEVEL_CONTRACT = /^contract\s+([A-Za-z0-9_$]+)/m;
 
@@ -150,6 +159,12 @@ export function select(repo) {
   for (const file of devkitReach) {
     if (isVendored(file)) continue;
     if (under(file, PLATFORM_WITHIN)) claim(file, "platform");
+  }
+
+  for (const entry of chosen.values()) {
+    if (entry.source.startsWith(LAUNCH_DIR) && !entry.source.startsWith(LAUNCH_SHIPPED)) {
+      throw new Error(`${entry.source} reached the package — nothing under ${LAUNCH_DIR} but ${LAUNCH_SHIPPED} may ship`);
+    }
   }
 
   const files = [...chosen.values()].sort((a, b) => (a.target < b.target ? -1 : 1));

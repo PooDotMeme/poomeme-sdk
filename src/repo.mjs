@@ -10,7 +10,7 @@ export const sdkDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export function findRepo(start = sdkDir) {
   let at = resolve(start);
   for (;;) {
-    if (existsSync(join(at, "contracts", "foundry.toml")) && existsSync(join(at, "modules", "remappings.txt"))) {
+    if (existsSync(join(at, "contracts", "foundry.toml")) && existsSync(join(at, "contracts", "modules", "remappings.txt"))) {
       return at;
     }
     const up = dirname(at);
@@ -22,7 +22,7 @@ export function findRepo(start = sdkDir) {
 export function requireRepo(start = sdkDir) {
   const repo = findRepo(start);
   if (repo === null) {
-    throw new Error("no launchpad checkout above this package: contracts/foundry.toml and modules/remappings.txt not found");
+    throw new Error("no launchpad checkout above this package: contracts/foundry.toml and contracts/modules/remappings.txt not found");
   }
   return repo;
 }
@@ -63,8 +63,8 @@ export function remappingsOf(repo) {
     join(repo, "contracts"),
   );
   const modules = parseRemappings(
-    readFileSync(join(repo, "modules", "remappings.txt"), "utf8"),
-    join(repo, "modules"),
+    readFileSync(join(repo, "contracts", "modules", "remappings.txt"), "utf8"),
+    join(repo, "contracts", "modules"),
   );
   const merged = new Map();
   for (const entry of [...contracts, ...modules]) merged.set(entry.prefix, entry);
@@ -72,8 +72,8 @@ export function remappingsOf(repo) {
 }
 
 export function moduleSurfaceRoots(repo) {
-  const [first] = readFileSync(join(repo, "modules", "remappings.txt"), "utf8").split(/\n\s*\n/);
-  return parseRemappings(first, join(repo, "modules")).map((entry) => entry.prefix);
+  const [first] = readFileSync(join(repo, "contracts", "modules", "remappings.txt"), "utf8").split(/\n\s*\n/);
+  return parseRemappings(first, join(repo, "contracts", "modules")).map((entry) => entry.prefix);
 }
 
 export function submodulePins(repo) {

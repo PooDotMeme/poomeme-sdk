@@ -11,14 +11,13 @@ const PACKAGE_ROOTS = {
   "@uniswap/v2-periphery/": "lib/v2-periphery/contracts/",
   "forge-std/": "lib/forge-std/src/",
   "@standard/": "src/standard/",
-  "@launch-module/": "src/launch-module/",
-  "@token-module/": "src/token-module/",
 };
 
 const DEVKIT_ROOTS = {
   "@poo/devkit/": "devkit/",
-  "@registry/": "src/registry/",
   "@token/": "src/token/",
+  "@platform/": "src/platform/",
+  "@launch/": "src/launch/",
 };
 
 const CONSUMER_ROOTS = { "@modules/": "src/" };
@@ -30,7 +29,7 @@ function checkRootsAgainstRepo(repo) {
   const missing = moduleSurfaceRoots(repo).filter((root) => !declared.has(root));
   if (missing.length > 0) {
     throw new Error(
-      `modules/remappings.txt block 1 declares ${missing.join(", ")}; the package has no mapping for it`,
+      `contracts/modules/remappings.txt block 1 declares ${missing.join(", ")}; the package has no mapping for it`,
     );
   }
 }

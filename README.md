@@ -5,9 +5,9 @@ The `poo` command.
 Build a POO.MEME module on your own machine, against the real platform, with nothing running but
 Foundry.
 
-POO.MEME is live on **BNB Smart Chain** (chain id 56) and **Robinhood Chain** (chain id 4663). A
-module is published to the registry on the chain you name, and a token on that chain can then
-carry it; `poo publish` takes the chain's own RPC endpoint.
+POO.MEME is live on **BNB Smart Chain** (chain id 56). A module is published to the registry
+there, and a token on that chain can then carry it; `poo publish` takes the chain's own RPC
+endpoint.
 
 ```
 poo init my-module      scaffold a module project that builds and tests offline
@@ -50,7 +50,7 @@ refused it — not after a deployment.
 ## The loop
 
 `poo dev` starts an Anvil on 127.0.0.1, deploys the whole platform onto it — venue registry, module
-registry, token factory, metadata, verification, Uniswap V2 at its canonical addresses — publishes
+registry, token factory, blueprint, metadata, Uniswap V2 at its canonical addresses — publishes
 your factory to that registry, and creates a token that installs your module. It prints every
 address, writes them to `.poo/dev.json`, and holds the chain until you stop it. Point `cast`, a
 wallet or a test at it. Nothing of POO.MEME's is running, and nothing reaches the network: Anvil is
@@ -60,10 +60,11 @@ It is `script/Poo.s.sol` that does this, and that file is yours. The dev token's
 your module's config live at the top of it, so when your config stops being one `uint256` you change
 it there. `poo dev --rpc <url>` uses a chain you already have instead of starting one.
 
-A token needs a launch module, and the module surface deliberately carries none — a launch is
-somebody's module, not the platform's. So the devkit ships the smallest launch the registry will
-accept, and `poo dev` publishes that one to give your token a route. It is test scaffolding, in
-`lib/poo-sdk/devkit/`, and your own sources still may not import it.
+A token needs a launch, and a launch is not a module: a launch mode is the platform's own, publishes
+no manifest and takes no registry entry, so nothing about one reaches the module surface. The devkit
+ships a launch fixture instead, and `poo dev` hands its address straight to the platform to give your
+token a route. It is test scaffolding, in `lib/poo-sdk/devkit/`, and your own sources still may not
+import it.
 
 ## The page your manifest asks for
 
@@ -107,7 +108,7 @@ Every hook you declare needs a gas cap in the manifest — `gateGas`, `trackGas`
 and `operateGas` — and a cap without its hook, or a hook without its cap, is refused. Each
 cap has a ceiling the registry will not publish past, because a token has to be able to afford
 every module it installed in one transaction. The ceilings are constants on the surface, in
-`@token-module/TokenModuleTypes.sol`, and `poo preview` prints your cap against the ceiling it
+`@standard/token-module/TokenModuleTypes.sol`, and `poo preview` prints your cap against the ceiling it
 answers to. A module may declare `operate` or `work`, never both.
 
 `IPooGateHook.gate` is asked about buys, and deliberately not about the pair's own LP burns and

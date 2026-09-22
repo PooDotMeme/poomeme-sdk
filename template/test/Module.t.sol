@@ -4,9 +4,10 @@ pragma solidity 0.8.36;
 import {Test} from "forge-std/Test.sol";
 import {Platform, PlatformHarness, PlatformTerms} from "@poo/devkit/PlatformHarness.sol";
 import {MockERC20} from "@poo/devkit/mocks/MockERC20.sol";
+import {MockLaunchFactory} from "@poo/devkit/mocks/MockLaunchFactory.sol";
 import {QuoteKind} from "@standard/ManifestTypes.sol";
-import {IPooTokenModuleFactory} from "@token-module/IPooTokenModuleFactory.sol";
-import {TokenModuleContext} from "@token-module/TokenModuleTypes.sol";
+import {IPooTokenModuleFactory} from "@standard/token-module/IPooTokenModuleFactory.sol";
+import {TokenModuleContext} from "@standard/token-module/TokenModuleTypes.sol";
 import {__MODULE__} from "@modules/__MODULE__.sol";
 import {__MODULE__Factory} from "@modules/__MODULE__Factory.sol";
 
@@ -26,9 +27,10 @@ contract __MODULE__Test is Test {
             PlatformTerms({
                 owner: address(this),
                 quote: address(quote),
-                quoteKind: QuoteKind.Stable,
+                quoteKind: QuoteKind.Token,
                 platformShareBps: 10,
                 feeRecipient: address(0xFEE),
+                launchFactory: address(new MockLaunchFactory()),
                 pairInitCodeHash: V2_PAIR_INIT_CODE_HASH,
                 txGasCap: 16_777_216
             })

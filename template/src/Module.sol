@@ -3,9 +3,9 @@ pragma solidity 0.8.36;
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {AlreadyInitialized, InvalidConfig, NotToken} from "@standard/PooErrors.sol";
-import {IPooTokenModule} from "@token-module/IPooTokenModule.sol";
-import {TokenModuleContext} from "@token-module/TokenModuleTypes.sol";
-import {IPooTrackHook} from "@token-module/hooks/IPooTrackHook.sol";
+import {IPooTokenModule} from "@standard/token-module/IPooTokenModule.sol";
+import {TokenModuleContext} from "@standard/token-module/TokenModuleTypes.sol";
+import {IPooTrackHook} from "@standard/token-module/hooks/IPooTrackHook.sol";
 
 contract __MODULE__ is IPooTokenModule, IPooTrackHook {
     // #region Shared

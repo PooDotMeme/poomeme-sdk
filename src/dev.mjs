@@ -73,7 +73,8 @@ const ROWS = [
   ["tokenFactory", "the factory that made the token"],
   ["venueRegistry", "the venue registry"],
   ["metadata", "the metadata registry"],
-  ["launchFactory", "the launch the token used"],
+  ["launchFactory", "the launch factory the token trusts"],
+  ["launch", "the launch bound to the token"],
   ["deployer", "the wallet that sent all of it"],
 ];
 

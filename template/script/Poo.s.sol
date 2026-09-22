@@ -2,6 +2,8 @@
 pragma solidity 0.8.36;
 
 import {Script} from "forge-std/Script.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/interfaces/IUniswapV2Router02.sol";
 import {
     CanonicalV2,
     CanonicalV2Install,
@@ -9,16 +11,16 @@ import {
     PlatformHarness,
     PlatformTerms
 } from "@poo/devkit/PlatformHarness.sol";
-import {ConformanceLaunchFixtureFactory} from "@poo/devkit/fixtures/launch/ConformanceLaunchFixtureFactory.sol";
+import {ConformanceLaunchFixtureFactory} from "@poo/devkit/mocks/ConformanceLaunchFixtureFactory.sol";
 import {MockERC20} from "@poo/devkit/mocks/MockERC20.sol";
 import {TokenSaltLib} from "@poo/devkit/TokenSaltLib.sol";
-import {IPooLaunchFactory} from "@launch-module/IPooLaunchFactory.sol";
+import {LaunchContext} from "@launch/mode/IPooLaunchMode.sol";
 import {IPooToken} from "@standard/IPooToken.sol";
 import {QuoteKind} from "@standard/ManifestTypes.sol";
-import {IPooTokenModuleFactory} from "@token-module/IPooTokenModuleFactory.sol";
-import {TokenModuleBinding} from "@token-module/TokenModuleTypes.sol";
-import {Metadata} from "@registry/PooMetadata.sol";
-import {CreatorTaxTerms, LaunchChoice, SupplyRow, TokenModuleChoice, TokenTerms} from "@token/PooTokenFactory.sol";
+import {IPooTokenModuleFactory} from "@standard/token-module/IPooTokenModuleFactory.sol";
+import {TokenModuleBinding} from "@standard/token-module/TokenModuleTypes.sol";
+import {Metadata} from "@platform/PooMetadata.sol";
+import {CreatorTaxTerms, TokenModuleChoice, TokenTerms} from "@token/PooTokenFactory.sol";
 import {__MODULE__Factory} from "@modules/__MODULE__Factory.sol";
 
 struct Graph {
@@ -33,7 +35,7 @@ struct Graph {
     address metadata;
     address blueprint;
     address launchFactory;
-    uint32 launchEntry;
+    address launch;
     address moduleFactory;
     uint32 moduleEntry;
     address token;
@@ -51,13 +53,19 @@ abstract contract PooScript is Script {
     uint8 internal constant QUOTE_DECIMALS = 18;
     uint8 internal constant TAX_PAYEE_CAP = 8;
 
-    function terms(address deployer, address quote) internal pure virtual returns (PlatformTerms memory) {
+    function terms(address deployer, address quote, address launchFactory)
+        internal
+        pure
+        virtual
+        returns (PlatformTerms memory)
+    {
         return PlatformTerms({
             owner: deployer,
             quote: quote,
-            quoteKind: QuoteKind.Stable,
+            quoteKind: QuoteKind.Token,
             platformShareBps: PLATFORM_SHARE_BPS,
             feeRecipient: deployer,
+            launchFactory: launchFactory,
             pairInitCodeHash: V2_PAIR_INIT_CODE_HASH,
             txGasCap: TX_GAS_CAP
         });
@@ -89,21 +97,20 @@ abstract contract PooScript is Script {
         g.v2Factory = CanonicalV2.FACTORY;
         g.v2Router = CanonicalV2.ROUTER;
         g.weth = CanonicalV2.WETH;
+        g.launchFactory = address(new ConformanceLaunchFixtureFactory());
 
-        Platform memory p = PlatformHarness.install(terms(deployer, g.quote));
+        Platform memory p = PlatformHarness.install(terms(deployer, g.quote, g.launchFactory));
         g.venueRegistry = address(p.registry);
         g.moduleRegistry = address(p.moduleRegistry);
         g.tokenFactory = address(p.tokenFactory);
         g.metadata = address(p.metadata);
         g.blueprint = address(p.blueprint);
 
-        g.launchFactory = address(new ConformanceLaunchFixtureFactory(g.moduleRegistry));
-        g.launchEntry = p.moduleRegistry.publishLaunch(IPooLaunchFactory(g.launchFactory));
-
         g.moduleFactory = address(new __MODULE__Factory(g.moduleRegistry));
         g.moduleEntry = p.moduleRegistry.publishTokenModule(IPooTokenModuleFactory(g.moduleFactory));
 
         g.token = _createToken(p, g);
+        g.launch = _bindLaunch(p, g);
         TokenModuleBinding[] memory table = IPooToken(g.token).tokenModules();
         g.module = table[0].module;
     }
@@ -122,19 +129,28 @@ abstract contract PooScript is Script {
         // that does not, so the salt is searched rather than chosen. The seed
         // is whatever `tokenTerms` returned, so overriding it still decides
         // where the search starts.
-        TokenTerms memory terms = tokenTerms(p, g.quote);
-        terms.salt = TokenSaltLib.mine(p.tokenFactory, msg.sender, terms.salt);
+        TokenTerms memory chosenTerms = tokenTerms(p, g.quote);
+        chosenTerms.salt = TokenSaltLib.mine(p.tokenFactory, msg.sender, chosenTerms.salt);
 
         return p.tokenFactory
-            .create(
-                terms,
-                Metadata({description: "", website: "", x: "", telegram: ""}),
-                LaunchChoice({entryId: g.launchEntry, supply: TOTAL_SUPPLY, config: "", buyBps: 0, sellBps: 0}),
-                chosen,
-                new SupplyRow[](0),
-                tax,
-                signedBlueprint
-            );
+            .create(chosenTerms, Metadata({description: "", website: "", x: "", telegram: ""}), chosen, tax, signedBlueprint);
+    }
+
+    function _bindLaunch(Platform memory p, Graph memory g) private returns (address launch) {
+        IUniswapV2Router02 bound = IUniswapV2Router02(IPooToken(g.token).router());
+        LaunchContext memory ctx;
+        ctx.token = g.token;
+        ctx.quote = IPooToken(g.token).quote();
+        ctx.pair = IPooToken(g.token).pair();
+        ctx.dexFactory = bound.factory();
+        ctx.initialAuthority = g.deployer;
+        ctx.launchSupply = TOTAL_SUPPLY;
+        ctx.nativeIngress = ctx.quote == bound.WETH();
+        (,, ctx.pushGas) = p.tokenFactory.quoteAllowance(ctx.nativeIngress ? address(0) : ctx.quote);
+
+        launch = ConformanceLaunchFixtureFactory(g.launchFactory).create(ctx, "");
+        IPooToken(g.token).setLaunch(launch);
+        IERC20(g.token).transfer(launch, TOTAL_SUPPLY);
     }
 
     // #endregion
@@ -195,7 +211,8 @@ contract Preview is PooScript {
     function run() external returns (bytes memory manifest, bool accepted, uint32 entryId, bytes memory refusal) {
         vm.startPrank(msg.sender);
         address quote = address(new MockERC20("Preview Quote", "PQ", QUOTE_DECIMALS));
-        Platform memory p = PlatformHarness.install(terms(msg.sender, quote));
+        address launchFactory = address(new ConformanceLaunchFixtureFactory());
+        Platform memory p = PlatformHarness.install(terms(msg.sender, quote, launchFactory));
         __MODULE__Factory factory = new __MODULE__Factory(address(p.moduleRegistry));
         manifest = abi.encode(factory.manifest());
         try p.moduleRegistry.publishTokenModule(IPooTokenModuleFactory(address(factory))) returns (uint32 id) {

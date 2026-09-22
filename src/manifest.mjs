@@ -22,7 +22,7 @@ export function vocabularyOf(packageDir) {
 // project compiles against, so a ceiling the platform moves is printed here the
 // next time poo assemble runs, and the number is never typed twice.
 export function ceilingsOf(packageDir) {
-  const source = readFileSync(join(packageDir, "src", "token-module", "TokenModuleTypes.sol"), "utf8");
+  const source = readFileSync(join(packageDir, "src", "standard", "token-module", "TokenModuleTypes.sol"), "utf8");
   const out = {};
   for (const [, hook, amount] of source.matchAll(CEILING)) {
     out[hook.toLowerCase()] = Number(amount.replaceAll("_", ""));
@@ -232,9 +232,6 @@ function requiresParts(vocabulary, requires) {
   let tax = TAX_ROW[taxAsset] ?? `takes a tax row paid in ${words(taxAsset)}`;
   if (requires.minTotalBps > 0) tax += `, at least ${requires.minTotalBps} bps`;
   parts.push(tax);
-  let supply = requires.acceptsSupply ? "takes a supply share" : "takes no supply share";
-  if (requires.minSupplyBps > 0) supply += `, at least ${requires.minSupplyBps / 100} %`;
-  parts.push(supply);
   if (requires.unique) parts.push("one instance per token");
   return parts;
 }
