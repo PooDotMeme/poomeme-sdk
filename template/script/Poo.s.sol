@@ -20,7 +20,7 @@ import {QuoteKind} from "@standard/ManifestTypes.sol";
 import {IPooTokenModuleFactory} from "@standard/token-module/IPooTokenModuleFactory.sol";
 import {TokenModuleBinding} from "@standard/token-module/TokenModuleTypes.sol";
 import {Metadata} from "@platform/PooMetadata.sol";
-import {CreatorTaxTerms, TokenModuleChoice, TokenTerms} from "@token/PooTokenFactory.sol";
+import {CreatorPayee, TokenModuleChoice, TokenTerms} from "@token/PooTokenFactory.sol";
 import {__MODULE__Factory} from "@modules/__MODULE__Factory.sol";
 
 struct Graph {
@@ -51,7 +51,6 @@ abstract contract PooScript is Script {
     uint16 internal constant PLATFORM_SHARE_BPS = 10;
     uint256 internal constant TOTAL_SUPPLY = 1_000_000e18;
     uint8 internal constant QUOTE_DECIMALS = 18;
-    uint8 internal constant TAX_PAYEE_CAP = 8;
 
     function terms(address deployer, address quote, address launchFactory)
         internal
@@ -122,8 +121,7 @@ abstract contract PooScript is Script {
         chosen[0] =
             TokenModuleChoice({entryId: g.moduleEntry, supply: 0, config: moduleConfig(), buyBps: 0, sellBps: 0});
 
-        CreatorTaxTerms memory tax;
-        tax.payeeCap = TAX_PAYEE_CAP;
+        CreatorPayee[] memory tax;
 
         // Every POO.MEME token's address ends 8888 and the factory refuses one
         // that does not, so the salt is searched rather than chosen. The seed
