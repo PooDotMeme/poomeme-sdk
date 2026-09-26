@@ -45,6 +45,7 @@ const SURFACE_ALSO = [
   "contracts/src/standard/IPooFactoryDeveloper.sol",
   "contracts/src/standard/ManifestFieldsLib.sol",
   "contracts/src/standard/IPooProbeHost.sol",
+  "contracts/src/standard/token-module/hooks/IPooOperateOnBuyHook.sol",
   "contracts/src/standard/token-module/hooks/IPooOperateOnSellHook.sol",
   "contracts/src/standard/token-module/hooks/IPooReceiveHook.sol",
   "contracts/src/standard/token-module/hooks/IPooTrackHook.sol",
