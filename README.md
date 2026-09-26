@@ -109,7 +109,7 @@ and `operateGas` — and a cap without its hook, or a hook without its cap, is r
 cap has a ceiling the registry will not publish past, because a token has to be able to afford
 every module it installed in one transaction. The ceilings are constants on the surface, in
 `@standard/token-module/TokenModuleTypes.sol`, and `poo preview` prints your cap against the ceiling it
-answers to. A module may declare `operate` or `work`, never both.
+answers to.
 
 Declare either Operate hook and you must also declare `IPooRunFromReceiver`, answering
 `runsFromReceiver() -> true`. Your run then arrives from the address the token names as its own
