@@ -49,6 +49,7 @@ const SURFACE_ALSO = [
   "contracts/src/standard/token-module/hooks/IPooReceiveHook.sol",
   "contracts/src/standard/token-module/hooks/IPooTrackHook.sol",
   "contracts/src/standard/token-module/hooks/IPooGateHook.sol",
+  "contracts/src/standard/token-module/IPooRunFromReceiver.sol",
 ];
 
 const DEVKIT_ROOTS = ["contracts/devkit", "contracts/devkit/mocks"];

@@ -111,6 +111,12 @@ every module it installed in one transaction. The ceilings are constants on the 
 `@standard/token-module/TokenModuleTypes.sol`, and `poo preview` prints your cap against the ceiling it
 answers to. A module may declare `operate` or `work`, never both.
 
+Declare either Operate hook and you must also declare `IPooRunFromReceiver`, answering
+`runsFromReceiver() -> true`. Your run then arrives from the address the token names as its own
+`receiver()`, never from the token directly — accept it from that address. A module bound with an
+Operate hook that does not answer the marker is refused at creation, not at publish, so there is no
+`forge test` or `poo preview` error to catch a missing one ahead of time.
+
 `IPooGateHook.gate` is asked about buys, and deliberately not about the pair's own LP burns and
 skims. Every transfer out of the canonical pair looks like a buy, so a max-wallet Gate would
 otherwise refuse a holder withdrawing liquidity or anyone skimming the pair's surplus. The token
