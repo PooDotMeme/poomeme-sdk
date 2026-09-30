@@ -1,0 +1,6 @@
+@openzeppelin/=lib/poo-sdk/lib/openzeppelin-contracts/
+forge-std/=lib/poo-sdk/lib/forge-std/src/
+@poomeme/=lib/poo-sdk/core/
+
+@core-test/=lib/poo-sdk/core-test/
+@poo-devkit/=lib/poo-sdk/devkit/

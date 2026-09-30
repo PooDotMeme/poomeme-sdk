@@ -1,46 +1,29 @@
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, relative, sep } from "node:path";
 
-import { moduleSurfaceRoots, requireRepo, sdkDir, submodulePins, toolchainOf } from "./repo.mjs";
+import { requireRepo, sdkDir, submodulePins, toolchainOf } from "./repo.mjs";
 import { importsOf, isFile, makeResolver, parseRemappings } from "./solidity.mjs";
 import { closureViolations, PACKAGE_NAME, select, VENDORED } from "./surface.mjs";
 
 const PACKAGE_ROOTS = {
   "@openzeppelin/": "lib/openzeppelin-contracts/",
-  "@uniswap/v2-core/": "lib/v2-core/contracts/",
-  "@uniswap/v2-periphery/": "lib/v2-periphery/contracts/",
   "forge-std/": "lib/forge-std/src/",
-  "@standard/": "src/standard/",
+  "@poomeme/": "core/",
 };
 
-const DEVKIT_ROOTS = {
-  "@poo/devkit/": "devkit/",
-  "@token/": "src/token/",
-  "@platform/": "src/platform/",
-  "@launch/": "src/launch/",
-};
+const DEVKIT_TEST_ROOTS = { "@core-test/": "core-test/" };
 
-const CONSUMER_ROOTS = { "@modules/": "src/" };
+const DEVKIT_ROOTS = { "@poo-devkit/": "devkit/" };
 
 const unix = (path) => path.split(sep).join(posix.sep);
 
-function checkRootsAgainstRepo(repo) {
-  const declared = new Set([...Object.keys(PACKAGE_ROOTS), ...Object.keys(CONSUMER_ROOTS)]);
-  const missing = moduleSurfaceRoots(repo).filter((root) => !declared.has(root));
-  if (missing.length > 0) {
-    throw new Error(
-      `contracts/modules/remappings.txt block 1 declares ${missing.join(", ")}; the package has no mapping for it`,
-    );
-  }
-}
-
 function renderRemappings() {
   const block = (roots) => Object.entries(roots).map(([prefix, target]) => `${prefix}=${target}`);
-  return [...block(PACKAGE_ROOTS), "", ...block(DEVKIT_ROOTS), ""].join("\n");
+  return [...block(PACKAGE_ROOTS), "", ...block(DEVKIT_TEST_ROOTS), ...block(DEVKIT_ROOTS), ""].join("\n");
 }
 
 function renderFoundryToml(toolchain) {
-  return [
+  const lines = [
     "[profile.default]",
     'src = "src"',
     'out = "out"',
@@ -52,8 +35,10 @@ function renderFoundryToml(toolchain) {
     `optimizer = ${toolchain.optimizer}`,
     `optimizer_runs = ${toolchain.optimizer_runs}`,
     `via_ir = ${toolchain.via_ir}`,
-    "",
-  ].join("\n");
+  ];
+  if (toolchain.isolate !== undefined) lines.push(`isolate = ${toolchain.isolate}`);
+  lines.push("");
+  return lines.join("\n");
 }
 
 function listSol(dir, base = dir, out = []) {
@@ -66,7 +51,7 @@ function listSol(dir, base = dir, out = []) {
 }
 
 function verifyEmitted(buildDir) {
-  const roots = { ...PACKAGE_ROOTS, ...DEVKIT_ROOTS };
+  const roots = { ...PACKAGE_ROOTS, ...DEVKIT_TEST_ROOTS, ...DEVKIT_ROOTS };
   const resolveImport = makeResolver(
     parseRemappings(
       Object.entries(roots)
@@ -76,7 +61,7 @@ function verifyEmitted(buildDir) {
     ),
   );
   const problems = [];
-  for (const dir of ["src", "devkit"]) {
+  for (const dir of ["core", "core-test", "devkit"]) {
     const full = join(buildDir, dir);
     let files;
     try {
@@ -97,7 +82,6 @@ function verifyEmitted(buildDir) {
 }
 
 export function assemble({ repo = requireRepo(), out = join(sdkDir, "build", PACKAGE_NAME), log = console.log } = {}) {
-  checkRootsAgainstRepo(repo);
   const toolchain = toolchainOf(repo);
   const selection = select(repo);
 
@@ -115,6 +99,13 @@ export function assemble({ repo = requireRepo(), out = join(sdkDir, "build", PAC
     const destination = join(out, entry.target);
     mkdirSync(dirname(destination), { recursive: true });
     writeFileSync(destination, readFileSync(entry.file));
+  }
+
+  const devkitDir = join(sdkDir, "devkit");
+  const devkitFiles = readdirSync(devkitDir).filter((name) => name.endsWith(".sol")).sort();
+  mkdirSync(join(out, "devkit"), { recursive: true });
+  for (const name of devkitFiles) {
+    writeFileSync(join(out, "devkit", name), readFileSync(join(devkitDir, name)));
   }
 
   for (const dep of VENDORED) {
@@ -141,19 +132,22 @@ export function assemble({ repo = requireRepo(), out = join(sdkDir, "build", PAC
   const inTier = (...tiers) =>
     selection.files.filter((entry) => tiers.includes(entry.tier)).map((entry) => entry.target).sort();
 
+  const testOnly = Object.fromEntries(
+    selection.files
+      .filter((entry) => entry.tier === "platform")
+      .map((entry) => [entry.target, entry.tier])
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
+  );
+  for (const name of devkitFiles) testOnly[`devkit/${name}`] = "devkit";
+
   const surface = {
     package: PACKAGE_NAME,
     solc: JSON.parse(toolchain.solc_version),
     roots: PACKAGE_ROOTS,
+    devkitTestRoots: DEVKIT_TEST_ROOTS,
     devkitRoots: DEVKIT_ROOTS,
-    consumerRoots: CONSUMER_ROOTS,
     moduleVisible: inTier("surface"),
-    testOnly: Object.fromEntries(
-      selection.files
-        .filter((entry) => entry.tier === "platform" || entry.tier === "devkit")
-        .map((entry) => [entry.target, entry.tier])
-        .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
-    ),
+    testOnly,
     dependencies: Object.fromEntries(
       VENDORED.map((dep) => [dep.name, pins[dep.from] ?? null]).sort((a, b) => (a[0] < b[0] ? -1 : 1)),
     ),
@@ -171,12 +165,13 @@ export function assemble({ repo = requireRepo(), out = join(sdkDir, "build", PAC
     moduleVisible: surface.moduleVisible,
     testOnly: Object.keys(surface.testOnly),
     surfaceLines: lines(["surface"]),
-    testOnlyLines: lines(["platform", "devkit"]),
+    testOnlyLines: lines(["platform"]),
   };
 
   log(`assembled ${PACKAGE_NAME} into ${unix(relative(repo, out))}`);
   log(`  module surface  ${surface.moduleVisible.length} files, ${report.surfaceLines} lines`);
-  log(`  test-only       ${report.testOnly.length} files, ${report.testOnlyLines} lines`);
+  log(`  platform        ${lines(["platform"])} lines across ${Object.values(surface.testOnly).filter((t) => t === "platform").length} files`);
+  log(`  devkit          ${devkitFiles.length} files (hand-written launch harness, wired to the vendored test fixtures)`);
   log(`  vendored        ${VENDORED.map((dep) => dep.name).join(", ")}`);
   log(`  closure check   passed — every import lands inside the package`);
   return report;

@@ -2,19 +2,21 @@
 
 The `poo` command.
 
-Build a POO.MEME module on your own machine, against the real platform, with nothing running but
-Foundry.
+Build a POO.MEME module on your own machine, against the real launcher and directory, with
+nothing running but Foundry.
 
-POO.MEME is live on **BNB Smart Chain** (chain id 56). A module is published to the registry
-there, and a token on that chain can then carry it; `poo publish` takes the chain's own RPC
-endpoint.
+POO.MEME's live chain is public; a module is registered in `PooModuleDirectory` there directly —
+`deployAndRegister(initcode, salt)`, or `publish(factory)` for one you already deployed. No fee, no
+wallet-namespace claim and no admin: just a factory that answers the right selectors, refuses every caller
+but POO.MEME's launcher, and carries a manifest the directory accepts. A launch installs a registered
+factory and nothing else.
 
 ```
 poo init my-module      scaffold a module project that builds and tests offline
-poo dev                 stand a chain up and run your module on it, end to end
-poo preview             draw the token page your manifest asks for
-poo check               compile it and hold every import to the published surface
-poo publish             publish a deployed factory to a module registry
+poo check                hold every import to the published surface, and run the directory's own
+                          manifest rules locally, before you ever call publish for real
+poo preview               draw the token page your manifest asks for
+poo abi                   print this module's and its factory's compiled ABI
 ```
 
 ## What you install
@@ -26,153 +28,158 @@ npm install -g @poomeme/sdk
 poo init my-module
 ```
 
-Nothing else — the package carries the platform, and `poo init` writes it into your project's
-`lib/poo-sdk`, so there is no `forge install` step, no RPC, and no account.
+Nothing else — the package carries the module surface and a devkit that stands the real launcher and
+directory up in memory, so `poo init` writes it into your project's `lib/poo-sdk` and there is no
+`forge install` step, no RPC and no account until you actually publish.
 
 ## What you get
 
 ```
 my-module/
-  foundry.toml            solc 0.8.36, cancun, via-IR — the settings POO.MEME itself builds with
-  remappings.txt          the roots your sources may use, and the ones only your tests may
-  src/MyModule.sol        the contract a token installs
-  src/MyModuleFactory.sol its manifest, its probe, and how instances are made
-  test/MyModule.t.sol     a whole platform, stood up in memory, that publishes your module
-  script/Poo.s.sol        that same platform, deployed — `poo dev` and `poo preview` run it
-  lib/poo-sdk/            the platform
+  foundry.toml               solc 0.8.36, cancun, via-IR — the settings POO.MEME itself builds with
+  remappings.txt              @poomeme/ for the real POO.MEME sources, @core-test/ for its own vendored
+                               test fixtures, @poo-devkit/ for the harness built on top of them
+  src/MyModule.sol            the contract a token's splitter pays
+  src/MyModuleFactory.sol     its manifest and how instances are made
+  test/MyModule.t.sol         the real launcher, directory and a Pons stand-in, stood up in memory
+  script/Poo.s.sol            that same devkit, deployed — poo preview reads it, forge script --tc Dev
+                               runs it against a chain you already have
+  script/Publish.s.sol        deploy (if needed) and publish to a real directory — dry run unless you
+                               pass --broadcast
+  lib/poo-sdk/                the module surface, the real launcher/directory/splitter for your tests,
+                               and the Pons stand-in the launcher test suite itself uses
 ```
 
-`forge test` in that directory installs a registry, a token factory, a Uniswap V2 venue and a
-metadata registry into a throwaway EVM, then calls the real `publishTokenModule` on the real
-registry. If your manifest is wrong, you find out there, by the name of the Solidity error that
-refused it — not after a deployment.
+`forge test` in that directory deploys `PooModuleDirectory`, `PooLauncher` and a Pons stand-in into a
+throwaway EVM, registers your factory in the real directory, mines a salt whose predicted token address
+ends `0x8888` (`PooLauncher` refuses any other), launches a token that installs your module as one of
+its fee legs, sends the splitter some ETH and collects it. If your manifest is wrong, you find out
+there, by the name of the Solidity error that refused it — not after a deployment.
+
+`DevkitHarness` (`@poo-devkit/ModuleHarness.sol`) carries the three calls that loop is built from:
+`install` stands up the Pons stand-in, the directory and `PooLauncher` itself — its constructor also
+takes a refund pricer, for the gas refund an ERC-20-paired launch pays — `request` builds a
+`LaunchRequest` with its economics pin already set (`PooLauncher` refuses a launch whose pinned terms
+have gone stale, `EconomicsMismatch`; the scaffold's own request launches against the chain's native
+coin, leaving the type's `quote`, `quoteIn` and `snipeFeeExemptions` fields at their defaults), and
+`vanity` mines the salt — call it right before `launcher.launch(r)`, as the scaffolded test does.
 
 ## The loop
 
-`poo dev` starts an Anvil on 127.0.0.1, deploys the whole platform onto it — venue registry, module
-registry, token factory, blueprint, metadata, Uniswap V2 at its canonical addresses — publishes
-your factory to that registry, and creates a token that installs your module. It prints every
-address, writes them to `.poo/dev.json`, and holds the chain until you stop it. Point `cast`, a
-wallet or a test at it. Nothing of POO.MEME's is running, and nothing reaches the network: Anvil is
-Foundry's and the chain has no fork URL.
+`poo preview` builds your factory, deploys the same devkit inside one EVM that never existed, reads
+`manifest()` off your factory, and draws the seats: every section, its column grid, what each item
+spans, the widget and unit behind each figure, every action with its inputs, every event with its tone.
+Then it calls the real `PooModuleDirectory.publish` and tells you the answer by the name of the error,
+if there is one.
 
-It is `script/Poo.s.sol` that does this, and that file is yours. The dev token's name, supply and
-your module's config live at the top of it, so when your config stops being one `uint256` you change
-it there. `poo dev --rpc <url>` uses a chain you already have instead of starting one.
+`poo check` compiles your project, refuses any import that reaches past the published surface (your
+sources may import `@poomeme/pons/IPooModuleFactory.sol`, `ModuleManifestTypes.sol` and
+`ModuleManifestLib.sol` — interfaces, types and one pure library, never the launcher or the directory
+themselves), and then runs the exact rules `ModuleManifestCheckLib.sol` runs on chain — handle and
+version characters, section and item shapes, action-selector recomputation, event-topic recomputation —
+against your manifest in plain JavaScript, so every one of those refusals shows up by name before you
+ever spend gas on `publish`.
 
-A token needs a launch, and a launch is not a module: a launch mode is the platform's own, publishes
-no manifest and takes no registry entry, so nothing about one reaches the module surface. The devkit
-ships a launch fixture instead, and `poo dev` hands its address straight to the platform to give your
-token a route. It is test scaffolding, in `lib/poo-sdk/devkit/`, and your own sources still may not
-import it.
-
-## The page your manifest asks for
-
-A manifest is a module's entire user interface, and until now you found out what it looked like
-after you published it. `poo preview` stands the platform up inside one EVM that never existed,
-builds your factory, reads `manifest()` off it, and draws the seats: every section, its column
-grid, what each item spans, the widget and unit behind each figure, which views need a viewer,
-which ones hide behind a condition, every action with its inputs, every event with its tone. Then
-it asks the real registry to publish it and tells you the answer by the name of the error.
-
-It reads nothing of ours over the wire — no RPC, no API, no key. The words, units, order and
-widths are yours; the pixels are the platform's.
+Both read nothing of ours over the wire — no RPC, no API, no key. The words, units, order and widths are
+yours; the pixels are the platform's.
 
 ## Publishing
 
-`poo publish` is the only command that reaches a chain that is not yours, and it refuses rather
-than half-finishes. Before it sends anything it checks that the address you named holds code, that
-the manifest there is this checkout's byte for byte, that the registry would accept it at all, that
-you are the factory's developer, that the handle is free or already yours, and that this factory
-is not published twice. It reads `publishFee()` and sends exactly that, because the registry
-refuses any other amount.
-
-Without `--broadcast` it only checks. With it, `cast` signs — pass your own signing flags after
-`--`, and the SDK never sees a key:
+There is no SDK command that reaches a chain that is not yours — `script/Publish.s.sol` is plain
+`forge script`, so it already dry-runs by default and only sends anything with `--broadcast`:
 
 ```
-poo publish --rpc <url> --registry 0x… --factory 0x… --broadcast -- --ledger
+forge script script/Publish.s.sol --rpc-url <url>                                          # dry run
+DIRECTORY=0x… forge script script/Publish.s.sol --rpc-url <url> --broadcast --private-key <key>
 ```
 
-Run it first against your own `poo dev` chain, where `--registry` comes from `.poo/dev.json`: the
-same checks, the same transaction, nothing at stake.
+`DIRECTORY` names the `PooModuleDirectory` to register with — on Robinhood Chain (4663),
+`0xf4929EF6e8694f7D49A1b3818115c7b8F9039851`. Without `FACTORY` the script deploys and
+registers your factory in one call, `deployAndRegister`, bound to the launcher that directory answers for
+(`directory.launcher()`), at the address `directory.predictFactory(you, SALT, keccak256(initcode))` gives —
+`SALT` is optional and defaults to zero, and if that address already holds your factory the script says it is
+already registered and sends nothing. Pass `FACTORY` if you already deployed one and only want to `publish`
+it. Run it first against a devkit chain of your own (`forge script script/Poo.s.sol --tc Dev --rpc-url <anvil>
+--broadcast` stands one up), where nothing is at stake, before you ever point it at a real directory.
 
 ## What you write
 
-A **module** is a contract a token calls. It implements `IPooTokenModule` and, if it wants to hear
-about trades, one or more hook interfaces: `IPooTrackHook`, `IPooReceiveHook`, `IPooGateHook`,
-`IPooOperateOnSellHook`, `IPooOperateOnBuyHook`. Each one you declare raises the gas floor of every token that
-installs you, for the life of that token — so declare the ones you use and no more.
+A **module** is a contract the token's `PooSplitter` pays: it receives ETH from `collect()` as its
+leg's share of the fees, and anyone may call the actions your manifest declares — there is no
+permissioning the standard imposes beyond what your own contract chooses to enforce. Declare a
+`receive()` if you want to accept that ETH at all; nothing requires you to.
 
-Every hook you declare needs a gas cap in the manifest — `gateGas`, `trackGas`, `receiveGas`
-and `operateGas` — and a cap without its hook, or a hook without its cap, is refused. Each
-cap has a ceiling the registry will not publish past, because a token has to be able to afford
-every module it installed in one transaction. The ceilings are constants on the surface, in
-`@standard/token-module/TokenModuleTypes.sol`, and `poo preview` prints your cap against the ceiling it
-answers to.
+A **factory** makes instances of it and implements `IPooModuleFactory`:
 
-Declare either Operate hook and you must also declare `IPooRunFromReceiver`, answering
-`runsFromReceiver() -> true`. Your run then arrives from the address the token names as its own
-`receiver()`, never from the token directly — accept it from that address. A module bound with an
-Operate hook that does not answer the marker is refused at creation, not at publish, so there is no
-`forge test` or `poo preview` error to catch a missing one ahead of time.
+```solidity
+interface IPooModuleFactory is IERC165 {
+    error NotLauncher();
 
-`IPooGateHook.gate` is asked about buys, and deliberately not about the pair's own LP burns and
-skims. Every transfer out of the canonical pair looks like a buy, so a max-wallet Gate would
-otherwise refuse a holder withdrawing liquidity or anyone skimming the pair's surplus. The token
-reads the pair's supply and reserves before it calls the Gates and skips them in exactly those two
-cases, so write your gate for buyers.
+    function manifest() external view returns (ModuleManifest memory);
+    function developer() external view returns (address);
+    function launcher() external view returns (address);
+    function create(ModuleContext calldata context, bytes calldata config) external returns (address module);
+}
 
-There is no tax interface to declare and no tax entry to publish. A token's tax is the token's own,
-fixed at creation. What a module earns is a row of the token's own tax table, paid in the asset its
-manifest declares in `requires.taxAsset` — the quote asset or the token itself — and
-`IPooReceiveHook.onReceive(address asset, uint256 buyAmount, uint256 sellAmount)` is how it is told
-what arrived.
+struct ModuleContext {
+    address token;
+    address splitter;
+    address curve;
+    address creator;
+    uint16 bps;
+    address quote;
+    uint8 quoteDecimals;
+}
+```
 
-A **factory** makes instances of it and carries the **manifest** — the Solidity value that tells the
-token page what to render: your config fields, your views, your actions, your events. The manifest is
-data, immutable, and read straight off the chain, so the page a holder sees is the page your factory
-declared.
+`launcher()` is the one `PooLauncher` your factory serves — take it as a constructor argument and keep it
+immutable. `create` must revert `NotLauncher()` for any other caller, **as its first statement**, before a
+`nonReentrant` guard, a config check or any state write: the directory registers your factory only after
+calling `create` itself, read-only, and seeing exactly that 4-byte error come back. The scaffolded factory
+already does this; keep that line first.
 
-A **probe** is one instance your factory builds in its own constructor, on the registry's stand-in:
-`IPooProbeHost(registry).probeStandIn()` answers as the token and the pair, and the probe takes it
-for every context field. The registry interrogates the probe before it will publish you: it calls
-every selector your manifest names, and it calls every hook you declared through the stand-in,
-inside the gas you declared for it. A manifest that promises something the code does not answer is
-refused, and so is a probe whose token is anything but the stand-in.
+`create` is called once per token, by `PooLauncher`, with the token, the splitter that will pay this
+leg, the bonding curve, the token's creator, this leg's own share in basis points, and the launch's own
+pair asset — `quote` (the zero address for the chain's native coin, else the Pons-approved ERC-20 the
+launch is paired against) and `quoteDecimals`, the scale a config field or action input reads and encodes
+amounts at. `config` is whatever bytes the creator supplied for this leg at launch — decode it yourself,
+and refuse it if it is not what you expect.
+
+The **manifest** is the Solidity value that tells the token page what to render: your name, handle and
+version, your config fields, your sections of views and actions, your events and errors. It is data,
+immutable, and read straight off the chain, so the page a holder sees is the page your factory declared.
+`ModuleManifestLib` (in the published surface) is the small library both first-party factories and the
+scaffold build one with — `ModuleManifestLib.base(...)`, `.figure(...)`, `.call(...)`, `.when(...)`,
+`.items(...)`, `.logged(...)` — so you never hand-write a struct literal for a view or an action.
 
 ## What refuses you
 
-The registry, its manifest checks and the handle namespace declare more than a hundred named
-refusals between them. `forge test` and `poo preview` show you them by name:
-`SelectorNotAnswered`, `ProbeConfigInvalid`, `GasWithoutHook`, `GasCapAboveCeiling`,
-`ItemUnreferenced`, `HandleUnavailable`, `EventSignatureMismatch`, and the rest.
+`ModuleManifestCheckLib` and `PooModuleDirectory` between them declare every refusal `poo check` and
+`poo preview` show you by name: `HandleInvalid`, `VersionInvalid`, `NameInvalid`, `SummaryInvalid`,
+`ActionSelectorMismatch` (your declared selector does not match `name(type,type,...)` recomputed from
+your own inputs), `ItemUnreferenced` (a view, action or list you declared that no item on the section's
+grid points at), `EventSignatureMismatch` (your declared `topic0` does not match the signature you gave
+it), `ManifestTooLarge` (over 16,384 bytes ABI-encoded), and — from the directory itself —
+`NotAModuleFactory` (your contract does not answer `ERC165.supportsInterface` for `IPooModuleFactory`),
+`WrongLauncher` (your factory's `launcher()` is not the launcher this directory is bound to),
+`LauncherNotEnforced` (`create`, called by the directory, did not revert with exactly `NotLauncher()`),
+`NotDeveloper` (you are not the address your factory's own `developer()` names), `AlreadyPublished`.
+A launch naming a factory that is not registered, or whose code has changed since it registered, is refused
+`NotRegistered`; one whose `launcher()` no longer answers this launcher is refused `WrongLauncher`.
 
-`poo check` refuses one thing the compiler will not: an import that reaches past the published
-surface. Your sources may import interfaces, types and pure libraries — `poo init` and `poo check`
-both print how many files that is.
-They may not import the platform's implementation, and they may not import the test devkit, even
-though both are sitting in `lib/poo-sdk` so your tests can use them. The check is by file, not by
-spelling, so renaming a remapping does not get you past it.
-
-```
-src/MyModule.sol:9  imports @token/PooToken.sol
-    src/token/PooToken.sol is platform implementation — a module declares against interfaces
-    and types, never against one
-```
-
-## Your handle
-
-`m.handle` in the manifest is your module family's handle: 3 to 31 bytes of `a-z`, `0-9` and `-`,
-starting with a letter. The first wallet to publish under it holds it for the module family, and
-every later publication under that handle must come from the same wallet. Wallets and module
-families share one namespace, so a handle a wallet holds cannot be published under, and a handle
-POO.MEME has dropped cannot be used at all. Pick it before you publish, not after.
+There is no handle namespace: `m.handle` is a label the directory checks for shape (3 characters or more
+of `a-z`, `0-9` and `-`, up to 32, never starting or ending with `-`) and nothing else — publishing does
+not claim it, and nothing stops another factory from using the same one.
 
 ## Where the platform comes from
 
-`poo assemble` builds `lib/poo-sdk` from the platform's own tree, which is the only place that
-Solidity exists — the package is generated, never copied by hand, so it cannot fall behind the
-contracts it describes. Packing the CLI runs it, so an installed `poo init` scaffolds against the
-platform its version was built from. From a checkout, `node sdk/bin/poo.mjs init my-module`
-reassembles from the tree on every run instead.
+`poo assemble` builds `lib/poo-sdk` from this checkout's own `contracts/src/pons/` (and the
+Pons interfaces and pool-key library it depends on) — the only place that Solidity exists — so the
+package is generated, never copied by hand, and cannot fall behind the contracts it describes. Packing
+the CLI runs it, so an installed `poo init` scaffolds against the platform its version was built from.
+From a checkout, `node sdk/bin/poo.mjs init my-module` reassembles from the tree on every run instead.
+
+The devkit's Pons stand-in (`lib/poo-sdk/core-test/`) is vendored the same way — from
+`contracts/test/pons/PonsV2Mocks.sol` and `VanityMinerLib.sol`, the same fixtures the real launcher
+test suite proves `PooLauncher` against, salt-mining included. Only the harness that wires them
+together (`lib/poo-sdk/devkit/ModuleHarness.sol`, `sdk/devkit/*.sol` in this checkout) is hand-written.

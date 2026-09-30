@@ -6,7 +6,6 @@ import { readProfile, sdkDir } from "./repo.mjs";
 import { PACKAGE_NAME } from "./surface.mjs";
 
 const SCRIPT_FILE = join("script", "Poo.s.sol");
-export const RECORD_FILE = join(".poo", "dev.json");
 
 export const unix = (path) => path.split(sep).join(posix.sep);
 

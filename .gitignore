@@ -1,2 +1,7 @@
 build/
 node_modules/
+template/lib/
+template/out/
+template/cache/
+template/broadcast/
+template/.poo/

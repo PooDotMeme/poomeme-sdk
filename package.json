@@ -1,7 +1,7 @@
 {
   "name": "@poomeme/sdk",
-  "version": "0.4.0",
-  "description": "Build, test and check a POO.MEME module against a real platform on your own machine.",
+  "version": "0.5.0",
+  "description": "Build, test and check a POO.MEME Pons module against the real launcher, directory and a Pons stand-in on your own machine.",
   "type": "module",
   "license": "(MIT AND GPL-3.0-or-later)",
   "repository": {

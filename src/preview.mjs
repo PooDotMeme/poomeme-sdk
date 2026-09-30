@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { decode, nameRefusal, outputOf, refusalCatalogue } from "./abi.mjs";
-import { ceilingsOf, render, vocabularyOf } from "./manifest.mjs";
+import { render, vocabularyOf } from "./manifest.mjs";
 import { artifactOf, ensureScript, forgeScript, locatePackage, locateProject, moduleNameOf, unix } from "./project.mjs";
 
 const ANSWERS = ["manifest", "accepted", "entryId", "refusal"];
@@ -27,13 +27,14 @@ function selectorsOf(project, name) {
   return known;
 }
 
-// The whole platform, stood up inside one EVM that never existed, so the
-// manifest a page would read and the verdict a registry would give both come
-// back without a chain, a key, an RPC or anything of POO.MEME's running.
+// The devkit's own launcher, directory and Pons stand-in, stood up inside one
+// EVM that never existed, so the manifest a page would read and the verdict a
+// real directory would give both come back without a chain, a key, an RPC or
+// anything of POO.MEME's running.
 export function look({ project, packageDir, name, quiet = false }) {
   const script = ensureScript(project, name);
   if (script.written && !quiet) {
-    console.log(`wrote ${unix(join("script", "Poo.s.sol"))} — the platform this preview stands on`);
+    console.log(`wrote ${unix(join("script", "Poo.s.sol"))} — the devkit this preview stands on`);
   }
   if (!quiet) console.log("$ forge script script/Poo.s.sol --tc Preview");
 
@@ -63,16 +64,10 @@ export function preview({ directory = ".", flags = {} }) {
 
   let verdict;
   if (seen.accepted) {
-    verdict = `the registry accepts this manifest — it published as entry ${seen.entryId} on a chain that never existed`;
+    verdict = `the directory accepts this factory — it registered as entry ${seen.entryId} on a chain that never existed`;
   } else {
-    const known = refusalCatalogue(project, [
-      "ManifestChecks",
-      "PooModuleRegistry",
-      "PooMetadata",
-      name,
-      `${name}Factory`,
-    ]);
-    verdict = `the registry REFUSES this manifest: ${nameRefusal(known, seen.refusal).text}`;
+    const known = refusalCatalogue(project, ["ModuleManifestCheckLib", "PooModuleDirectory", name, `${name}Factory`]);
+    verdict = `the directory REFUSES this factory: ${nameRefusal(known, seen.refusal).text}`;
   }
 
   if (flags.json === true) {
@@ -84,7 +79,6 @@ export function preview({ directory = ".", flags = {} }) {
   console.log(
     render(seen.manifest, vocabularyOf(packageDir), {
       selectors: selectorsOf(project, name),
-      ceilings: ceilingsOf(packageDir),
       verdict,
     }),
   );

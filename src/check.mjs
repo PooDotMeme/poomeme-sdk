@@ -1,12 +1,14 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
-import { build, locatePackage, locateProject, sourceDir, unix } from "./project.mjs";
+import { checkManifest } from "./manifest-check.mjs";
+import { look } from "./preview.mjs";
+import { build, locatePackage, locateProject, moduleNameOf, sourceDir, unix } from "./project.mjs";
 import { importSitesOf, isFile, makeResolver, parseRemappings } from "./solidity.mjs";
 
 const WHY = {
-  platform: "platform implementation — a module declares against interfaces and types, never against one",
-  devkit: "devkit — your tests may stand a platform up with it, your module may not import it",
+  platform: "the launcher implementation — a module declares against interfaces and types, never against one",
+  devkit: "devkit — your tests may stand a launcher and directory up with it, your module may not import it",
 };
 
 function sources(dir, out = []) {
@@ -19,19 +21,14 @@ function sources(dir, out = []) {
   return out;
 }
 
-export function check({ directory = ".", flags = {} }) {
-  const project = locateProject(directory);
-  const packageDir = locatePackage(project, flags);
-  const surface = JSON.parse(readFileSync(join(packageDir, "surface.json"), "utf8"));
+function checkBoundary(project, packageDir, surface) {
   const moduleVisible = new Set(surface.moduleVisible.map((path) => join(packageDir, path)));
   const testOnly = new Map(Object.entries(surface.testOnly).map(([path, tier]) => [join(packageDir, path), { path, tier }]));
   const vendored = join(packageDir, "lib") + sep;
 
   const srcDir = sourceDir(project);
-  if (flags.build !== false) build(project);
-
   const remappingsPath = join(project, "remappings.txt");
-  if (!isFile(remappingsPath)) throw new Error(`${directory} has no remappings.txt`);
+  if (!isFile(remappingsPath)) throw new Error(`${unix(relative(project, project))} has no remappings.txt`);
   const resolveImport = makeResolver(parseRemappings(readFileSync(remappingsPath, "utf8"), project));
 
   const problems = [];
@@ -63,15 +60,44 @@ export function check({ directory = ".", flags = {} }) {
     }
   }
 
-  console.log(`\nchecked ${files.length} module sources, ${imports} imports, against ${surface.moduleVisible.length} published files`);
-  if (problems.length === 0) {
+  return { files, imports, problems };
+}
+
+export function check({ directory = ".", flags = {} }) {
+  const project = locateProject(directory);
+  const packageDir = locatePackage(project, flags);
+  const surface = JSON.parse(readFileSync(join(packageDir, "surface.json"), "utf8"));
+
+  if (flags.build !== false) build(project);
+
+  const boundary = checkBoundary(project, packageDir, surface);
+  console.log(`\nchecked ${boundary.files.length} module sources, ${boundary.imports} imports, against ${surface.moduleVisible.length} published files`);
+  if (boundary.problems.length === 0) {
     console.log("boundary ok — every import lands on the published surface");
-    return 0;
+  } else {
+    console.error(`\n${boundary.problems.length} import${boundary.problems.length === 1 ? " reaches" : "s reach"} outside the surface:`);
+    for (const [at, spec, why] of boundary.problems) {
+      console.error(`  ${at}  imports ${spec}`);
+      console.error(`      ${why}`);
+    }
   }
-  console.error(`\n${problems.length} import${problems.length === 1 ? " reaches" : "s reach"} outside the surface:`);
-  for (const [at, spec, why] of problems) {
-    console.error(`  ${at}  imports ${spec}`);
-    console.error(`      ${why}`);
+
+  let manifestProblems = [];
+  if (flags.manifest !== false) {
+    const name = moduleNameOf(project, flags);
+    console.log(`\n$ forge script script/Poo.s.sol --tc Preview   (reading manifest() the same way poo preview does)`);
+    const seen = look({ project, packageDir, name, quiet: true });
+    const encodedBytes = (seen.raw.length - 2) / 2;
+    manifestProblems = checkManifest(seen.manifest, encodedBytes);
+    console.log(`checked the manifest against ModuleManifestCheckLib's own rules, ${encodedBytes} bytes ABI-encoded`);
+    if (manifestProblems.length === 0) {
+      console.log("manifest ok — every rule the directory enforces on-chain passes here too");
+    } else {
+      console.error(`\n${manifestProblems.length} manifest problem${manifestProblems.length === 1 ? "" : "s"}:`);
+      for (const problem of manifestProblems) console.error(`  ${problem}`);
+    }
   }
-  return 1;
+
+  console.log("");
+  return boundary.problems.length === 0 && manifestProblems.length === 0 ? 0 : 1;
 }

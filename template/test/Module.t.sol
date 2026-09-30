@@ -2,86 +2,101 @@
 pragma solidity 0.8.36;
 
 import {Test} from "forge-std/Test.sol";
-import {Platform, PlatformHarness, PlatformTerms} from "@poo/devkit/PlatformHarness.sol";
-import {MockERC20} from "@poo/devkit/mocks/MockERC20.sol";
-import {MockLaunchFactory} from "@poo/devkit/mocks/MockLaunchFactory.sol";
-import {QuoteKind} from "@standard/ManifestTypes.sol";
-import {IPooTokenModuleFactory} from "@standard/token-module/IPooTokenModuleFactory.sol";
-import {TokenModuleContext} from "@standard/token-module/TokenModuleTypes.sol";
-import {__MODULE__} from "@modules/__MODULE__.sol";
-import {__MODULE__Factory} from "@modules/__MODULE__Factory.sol";
+import {PonsLaunch} from "@poomeme/fees/IPons.sol";
+import {IPooModuleFactory, ModuleContext} from "@poomeme/pons/IPooModuleFactory.sol";
+import {LaunchRequest} from "@poomeme/pons/LaunchTypes.sol";
+import {PooSplitter} from "@poomeme/pons/PooSplitter.sol";
+import {PonsTestCurve} from "@core-test/pons/PonsMocks.sol";
+import {Devkit, DevkitHarness} from "@poo-devkit/ModuleHarness.sol";
+import {__MODULE__} from "../src/__MODULE__.sol";
+import {__MODULE__Factory} from "../src/__MODULE__Factory.sol";
 
 contract __MODULE__Test is Test {
-    // #region Platform
+    // #region Fixture
 
-    bytes32 internal constant V2_PAIR_INIT_CODE_HASH =
-        0x96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f;
+    address internal immutable DEVELOPER = makeAddr("developer");
+    address internal immutable CREATOR = makeAddr("creator");
+    address internal immutable PLATFORM = makeAddr("platform treasury");
+    address internal immutable PROTOCOL = makeAddr("pons protocol");
+    address internal immutable BUYBACK_VAULT = makeAddr("pons buyback vault");
+    address internal immutable BUYER = makeAddr("buyer");
 
-    Platform internal platform;
-    MockERC20 internal quote;
+    Devkit internal devkit;
     __MODULE__Factory internal factory;
 
     function setUp() public {
-        quote = new MockERC20("Quote", "QUO", 18);
-        platform = PlatformHarness.install(
-            PlatformTerms({
-                owner: address(this),
-                quote: address(quote),
-                quoteKind: QuoteKind.Token,
-                platformShareBps: 10,
-                feeRecipient: address(0xFEE),
-                launchFactory: address(new MockLaunchFactory()),
-                pairInitCodeHash: V2_PAIR_INIT_CODE_HASH,
-                txGasCap: 16_777_216
-            })
-        );
-        factory = new __MODULE__Factory(address(platform.moduleRegistry));
+        devkit = DevkitHarness.install(PROTOCOL, BUYBACK_VAULT, PLATFORM);
+        bytes memory initcode =
+            abi.encodePacked(type(__MODULE__Factory).creationCode, abi.encode(DEVELOPER, address(devkit.launcher)));
+        vm.prank(DEVELOPER);
+        (address deployed,) = devkit.directory.deployAndRegister(initcode, bytes32(0));
+        factory = __MODULE__Factory(deployed);
     }
 
     // #endregion
 
     // #region Publishing
 
-    function test_theRegistryAcceptsThisModule() public {
-        uint32 entryId = platform.moduleRegistry.publishTokenModule(IPooTokenModuleFactory(address(factory)));
-        assertGt(entryId, 0, "the registry refused the manifest");
+    function test_theDirectoryRegistersThisFactory() public view {
+        assertTrue(devkit.directory.isRegistered(address(factory)));
+        assertTrue(devkit.directory.matchesPublished(address(factory)));
+        assertTrue(devkit.launcher.isInstallable(address(factory)));
+    }
+
+    function test_onlyTheLauncherMayCreate() public {
+        ModuleContext memory context;
+        vm.expectRevert(IPooModuleFactory.NotLauncher.selector);
+        factory.create(context, "");
+    }
+
+    function test_theManifestNamesItsOwnHandle() public view {
+        assertEq(factory.manifest().handle, "__HANDLE__");
     }
 
     // #endregion
 
-    // #region Behaviour
+    // #region Launch
 
-    function test_aStreakStartsWhenTheBalanceCrosses() public {
-        __MODULE__ module = _standalone(100e18);
-        module.track(address(0xA), address(0xB), 0, 100e18);
-        assertEq(module.streakOf(address(0xB)), 0);
-        skip(1 days);
-        assertEq(module.streakOf(address(0xB)), 1 days);
+    function test_aTokenCanInstallThisModuleAsAFeeLegAndPayIt() public {
+        LaunchRequest memory r = DevkitHarness.request(devkit, "Fixture", "FIX", 500, CREATOR);
+        r = DevkitHarness.withModule(r, address(factory), 5_000, "");
+        r = DevkitHarness.vanity(devkit, CREATOR, r);
+
+        uint256 fee = devkit.pons.launchFee();
+        vm.deal(CREATOR, fee);
+        vm.prank(CREATOR);
+        (address token, address splitterAddress, address[] memory legs,) = devkit.launcher.launch{value: fee}(r);
+
+        __MODULE__ module = __MODULE__(payable(legs[0]));
+        assertEq(module.token(), token);
+        assertEq(module.beneficiary(), DEVELOPER);
+
+        PonsLaunch memory launch = devkit.pons.getLaunchedToken(token);
+        vm.deal(BUYER, 1 ether);
+        vm.prank(BUYER);
+        PonsTestCurve(payable(launch.curve)).buy{value: 1 ether}(1 ether, 0, BUYER);
+
+        PooSplitter splitter = PooSplitter(payable(splitterAddress));
+        splitter.collect();
+        assertGt(module.held(), 0);
+
+        uint256 before = DEVELOPER.balance;
+        module.release();
+        assertGt(DEVELOPER.balance, before);
     }
 
-    function test_aStreakEndsWhenTheBalanceFalls() public {
-        __MODULE__ module = _standalone(100e18);
-        module.track(address(0xA), address(0xB), 0, 100e18);
-        skip(1 days);
-        module.track(address(0xB), address(0xC), 99e18, 1e18);
-        assertEq(module.streakOf(address(0xB)), 0);
-    }
+    function test_aCreatorCanNameADifferentBeneficiary() public {
+        LaunchRequest memory r = DevkitHarness.request(devkit, "Fixture", "FIX", 0, CREATOR);
+        address chosen = makeAddr("chosen beneficiary");
+        r = DevkitHarness.withModule(r, address(factory), 5_000, abi.encode(chosen));
+        r = DevkitHarness.vanity(devkit, CREATOR, r);
 
-    function test_onlyTheTokenReportsTransfers() public {
-        __MODULE__ module = _standalone(100e18);
-        vm.prank(address(0xBAD));
-        vm.expectRevert();
-        module.track(address(0xA), address(0xB), 0, 100e18);
-    }
+        uint256 fee = devkit.pons.launchFee();
+        vm.deal(CREATOR, fee);
+        vm.prank(CREATOR);
+        (,, address[] memory legs,) = devkit.launcher.launch{value: fee}(r);
 
-    function _standalone(uint256 threshold) private returns (__MODULE__ module) {
-        module = new __MODULE__();
-        module.initialize(
-            TokenModuleContext({
-                token: address(this), quote: address(quote), pair: address(quote), router: address(quote)
-            }),
-            abi.encode(threshold)
-        );
+        assertEq(__MODULE__(payable(legs[0])).beneficiary(), chosen);
     }
 
     // #endregion

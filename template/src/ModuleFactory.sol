@@ -2,171 +2,122 @@
 pragma solidity 0.8.36;
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {IPooProbeHost} from "@standard/IPooProbeHost.sol";
-import {ManifestFieldsLib} from "@standard/ManifestFieldsLib.sol";
+import {IPooModuleFactory, ModuleContext} from "@poomeme/pons/IPooModuleFactory.sol";
+import {ModuleManifestLib} from "@poomeme/pons/ModuleManifestLib.sol";
 import {
     Action,
     ActionFlow,
     ErrorText,
     EventDecl,
-    EventRole,
     Field,
-    Item,
-    ItemKind,
     ListDecl,
-    Manifest,
+    ModuleManifest,
     NO_EVENT_ARG,
-    QuoteKind,
-    Requires,
     Section,
-    Seed,
-    TaxAsset,
+    SectionRole,
     Tone,
     Unit,
     View,
     Widget
-} from "@standard/ManifestTypes.sol";
-import {NotAContract} from "@standard/PooErrors.sol";
-import {IPooTokenModuleFactory} from "@standard/token-module/IPooTokenModuleFactory.sol";
-import {TokenModuleContext} from "@standard/token-module/TokenModuleTypes.sol";
-import {__MODULE__} from "@modules/__MODULE__.sol";
+} from "@poomeme/pons/ModuleManifestTypes.sol";
+import {__MODULE__} from "./__MODULE__.sol";
 
-contract __MODULE__Factory is IPooTokenModuleFactory {
-    // #region Shared
-
-    uint32 private constant TRACK_GAS = 90_000;
-    uint256 private constant PROBE_THRESHOLD = 1;
-
-    address public immutable override probe;
-    address public immutable developer;
-
-    constructor(address moduleRegistry) {
-        if (moduleRegistry.code.length == 0) revert NotAContract(moduleRegistry);
-        developer = msg.sender;
-        address standIn = IPooProbeHost(moduleRegistry).probeStandIn();
-        probe = _spawn(
-            TokenModuleContext({token: standIn, quote: standIn, pair: standIn, router: standIn}), _probeConfig()
-        );
-    }
-
-    function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-        return interfaceId == type(IPooTokenModuleFactory).interfaceId || interfaceId == type(IERC165).interfaceId;
-    }
-
-    // #endregion
-
+contract __MODULE__Factory is IPooModuleFactory {
     // #region Instances
 
-    function create(TokenModuleContext calldata ctx, bytes calldata config)
-        external
-        override
-        returns (address tokenModule)
-    {
-        tokenModule = _spawn(ctx, config);
+    address public immutable developer;
+    address public immutable launcher;
+
+    event ModuleCreated(
+        address indexed token, address indexed module, address indexed launcher, address splitter, uint16 bps
+    );
+
+    error ZeroAddress();
+
+    constructor(address developer_, address launcher_) {
+        if (developer_ == address(0) || launcher_ == address(0)) revert ZeroAddress();
+        developer = developer_;
+        launcher = launcher_;
     }
 
-    function _spawn(TokenModuleContext memory ctx, bytes memory config) private returns (address tokenModule) {
-        tokenModule = address(new __MODULE__());
-        __MODULE__(tokenModule).initialize(ctx, config);
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(IPooModuleFactory).interfaceId || interfaceId == type(IERC165).interfaceId;
+    }
+
+    function create(ModuleContext calldata context, bytes calldata config) external returns (address module) {
+        if (msg.sender != launcher) revert NotLauncher();
+        address beneficiary = config.length == 0 ? developer : abi.decode(config, (address));
+        module = address(new __MODULE__(context.token, beneficiary));
+        emit ModuleCreated(context.token, module, msg.sender, context.splitter, context.bps);
     }
 
     // #endregion
 
     // #region Manifest
 
-    function manifest() external pure override returns (Manifest memory m) {
-        m.name = "__MODULE__";
-        m.summary = "Counts how long a wallet has held at least the balance its creator set";
-        m.description =
-            "Every transfer the token writes is reported here. A wallet whose balance reaches the threshold starts a streak, and a wallet that falls below it loses one. Nothing is held, nothing is paid out, and this module can neither stop a trade nor move your tokens.";
-        m.handle = "__HANDLE__";
-        m.requires = Requires({
-            quote: QuoteKind.Any,
-            minTotalBps: 0,
-            unique: true,
-            taxAsset: TaxAsset.None
-        });
-        m.seeds = new Seed[](0);
-        m.trackGas = TRACK_GAS;
-        m.probeConfig = _probeConfig();
+    function manifest() external pure returns (ModuleManifest memory m) {
+        m = ModuleManifestLib.base(
+            "__MODULE__",
+            "__HANDLE__",
+            "0.1.0",
+            "Holds its share of the fees until anyone releases it to a fixed beneficiary",
+            "The share of this token's fees the creator routed here sits in this module until release is called. Anyone may call it; the ETH always goes to the beneficiary the creator set when the token launched, and to nobody else."
+        );
         m.config = _configFields();
         m.sections = new Section[](1);
-        m.sections[0] = _streakSection();
+        m.sections[0] = _vaultSection();
         m.events = _events();
-        m.errors = new ErrorText[](0);
-    }
-
-    function _probeConfig() private pure returns (bytes memory) {
-        return abi.encode(PROBE_THRESHOLD);
+        m.errors = _errors();
     }
 
     function _configFields() private pure returns (Field[] memory f) {
         f = new Field[](1);
-        f[0] = ManifestFieldsLib.field(
-            "threshold", "uint256", "Minimum balance", Unit.TokenAmount, "What a wallet must hold for its streak to run"
-        );
+        f[0].name = "beneficiary";
+        f[0].abiType = "address";
+        f[0].label = "Beneficiary";
+        f[0].unit = Unit.Address;
+        f[0].help = "Who release() pays. Defaults to the module's developer if left blank.";
+        f[0].optional = true;
+        f[0].options = new string[](0);
+        f[0].presetBps = new uint16[](0);
     }
 
-    // #endregion
-
-    // #region Section: Streak
-
-    function _streakSection() private pure returns (Section memory s) {
-        s.title = "Streak";
-        s.views = new View[](2);
-        s.views[0] = _figure("Minimum balance", __MODULE__.threshold.selector, false, Unit.TokenAmount);
-        s.views[1] = _figure("Your streak", __MODULE__.streakOf.selector, true, Unit.Duration);
-        s.lists = new ListDecl[](0);
+    function _vaultSection() private pure returns (Section memory s) {
+        s.title = "Vault";
+        s.role = SectionRole.Body;
+        s.columns = 1;
+        s.views = new View[](1);
+        s.views[0] =
+            ModuleManifestLib.figure(Widget.Figure, "Held", __MODULE__.held.selector, false, Unit.QuoteAmount, false);
         s.actions = new Action[](1);
-        s.actions[0] = _forgetAction();
-        s.columns = 2;
-        s.items = new Item[](3);
-        s.items[0] = Item({kind: ItemKind.View, span: 0, index: 0});
-        s.items[1] = Item({kind: ItemKind.View, span: 0, index: 1});
-        s.items[2] = Item({kind: ItemKind.Action, span: 0, index: 0});
-    }
-
-    function _figure(string memory label, bytes4 selector, bool withViewer, Unit unit)
-        private
-        pure
-        returns (View memory v)
-    {
-        v.widget = Widget.Figure;
-        v.label = label;
-        v.selectors = new bytes4[](1);
-        v.selectors[0] = selector;
-        v.withViewer = withViewer;
-        v.unit = unit;
-        v.labels = new string[](0);
-        v.tones = new Tone[](0);
-    }
-
-    function _forgetAction() private pure returns (Action memory a) {
-        a.name = "forget";
-        a.description = "Drop your streak and start again from now";
-        a.selector = __MODULE__.forget.selector;
-        a.previewUnit = Unit.Raw;
-        a.minOutInput = 0;
-        a.deadlineInput = 0;
-        a.flow = ActionFlow.None;
-        a.inputs = new Field[](0);
+        s.actions[0] = ModuleManifestLib.call(
+            "release",
+            "Send what is held to the beneficiary",
+            __MODULE__.release.selector,
+            ActionFlow.None,
+            ModuleManifestLib.none(),
+            ModuleManifestLib.when(bytes4(0), false, "")
+        );
+        s.lists = new ListDecl[](0);
+        s.items = ModuleManifestLib.items(1, 1);
     }
 
     function _events() private pure returns (EventDecl[] memory e) {
         e = new EventDecl[](1);
-        e[0] = EventDecl({
-            topic0: __MODULE__.StreakStarted.selector,
-            signature: "StreakStarted(address indexed holder, uint256 since)",
-            role: EventRole.Custom,
-            walletArg: 0,
-            amountArg: 1,
-            keyArg: NO_EVENT_ARG,
-            flagArg: NO_EVENT_ARG,
-            textArg: NO_EVENT_ARG,
-            amountUnit: Unit.Timestamp,
-            tone: Tone.Positive,
-            label: "Streak started"
-        });
+        e[0] = ModuleManifestLib.logged(
+            __MODULE__.Released.selector,
+            "Released(address indexed to, uint256 amount)",
+            0,
+            1,
+            Unit.QuoteAmount,
+            Tone.Positive,
+            "Released"
+        );
+    }
+
+    function _errors() private pure returns (ErrorText[] memory e) {
+        e = new ErrorText[](1);
+        e[0] = ErrorText({selector: __MODULE__.NothingToRelease.selector, text: "Nothing is held"});
     }
 
     // #endregion
