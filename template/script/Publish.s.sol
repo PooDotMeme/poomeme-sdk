@@ -23,18 +23,34 @@ contract Publish is Script {
             address predicted = directory.predictFactory(msg.sender, salt, keccak256(initcode));
             if (predicted.code.length != 0) {
                 console2.log("already registered: __MODULE__Factory at", predicted);
+                _logVerification(predicted);
                 return;
             }
             vm.broadcast();
             (address deployed, uint256 entry) = directory.deployAndRegister(initcode, salt);
             console2.log("deployed __MODULE__Factory at", deployed);
             console2.log("registered as directory entry", entry);
+            _logVerification(deployed);
             return;
         }
 
         vm.broadcast();
         uint256 index = directory.publish(factoryAddress);
         console2.log("registered as directory entry", index);
+        _logVerification(factoryAddress);
+    }
+
+    // #endregion
+
+    // #region Verification
+
+    function _logVerification(address factoryAddress) internal view {
+        __MODULE__Factory factory = __MODULE__Factory(factoryAddress);
+        console2.log("verify both contracts below; every module the factory creates is a clone of its implementation");
+        console2.log("VERIFY src/__MODULE__Factory.sol:__MODULE__Factory", factoryAddress);
+        console2.logBytes(abi.encode(factory.developer(), factory.launcher()));
+        console2.log("VERIFY src/__MODULE__.sol:__MODULE__", address(factory.implementation()));
+        console2.logBytes("");
     }
 
     // #endregion

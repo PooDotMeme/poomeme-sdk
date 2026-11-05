@@ -39,8 +39,9 @@ my-module/
   foundry.toml               solc 0.8.36, cancun, via-IR — the settings POO.MEME itself builds with
   remappings.txt              @poomeme/ for the real POO.MEME sources, @core-test/ for its own vendored
                                test fixtures, @poo-devkit/ for the harness built on top of them
-  src/MyModule.sol            the contract a token's splitter pays
-  src/MyModuleFactory.sol     its manifest and how instances are made
+  src/MyModule.sol            the contract a token's splitter pays, deployed once as the implementation
+                               every instance is a clone of
+  src/MyModuleFactory.sol     its manifest, that one implementation, and the clone it makes per token
   test/MyModule.t.sol         the real launcher, directory and a Pons stand-in, stood up in memory
   script/Poo.s.sol            that same devkit, deployed — poo preview reads it, forge script --tc Dev
                                runs it against a chain you already have
@@ -75,7 +76,8 @@ if there is one.
 `poo check` compiles your project, refuses any import that reaches past the published surface (your
 sources may import `@poomeme/pons/IPooModuleFactory.sol`, `ModuleManifestTypes.sol` and
 `ModuleManifestLib.sol` — interfaces, types and one pure library, never the launcher or the directory
-themselves), and then runs the exact rules `ModuleManifestCheckLib.sol` runs on chain — handle and
+themselves — plus the vendored OpenZeppelin and forge-std, which is where the scaffold's `Clones`
+comes from), and then runs the exact rules `ModuleManifestCheckLib.sol` runs on chain — handle and
 version characters, section and item shapes, action-selector recomputation, event-topic recomputation —
 against your manifest in plain JavaScript, so every one of those refusals shows up by name before you
 ever spend gas on `publish`.
@@ -101,6 +103,13 @@ registers your factory in one call, `deployAndRegister`, bound to the launcher t
 already registered and sends nothing. Pass `FACTORY` if you already deployed one and only want to `publish`
 it. Run it first against a devkit chain of your own (`forge script script/Poo.s.sol --tc Dev --rpc-url <anvil>
 --broadcast` stands one up), where nothing is at stake, before you ever point it at a real directory.
+
+**Verify two contracts, not one.** The factory's constructor deploys your module once, as its
+`implementation()`, at the factory's first `CREATE` address. The script ends by printing a `VERIFY` line
+for each: the factory, with its constructor arguments (`abi.encode(developer, launcher)`), and the
+implementation, with none. Submit both to the explorer. Every module the factory creates afterwards is a
+minimal-proxy clone of that implementation, which explorers show as a proxy of the one verified
+contract, so no instance ever needs a submission of its own.
 
 ## What you write
 
@@ -137,6 +146,23 @@ immutable. `create` must revert `NotLauncher()` for any other caller, **as its f
 `nonReentrant` guard, a config check or any state write: the directory registers your factory only after
 calling `create` itself, read-only, and seeing exactly that 4-byte error come back. The scaffolded factory
 already does this; keep that line first.
+
+The scaffold makes each instance the way POO.MEME's own modules do: the factory's constructor deploys
+the module once (`implementation()`), and `create` returns
+`Clones.cloneWithImmutableArgs(implementation, abi.encode(token, beneficiary))` — a minimal proxy with
+that token's terms appended to its code. The module has no constructor; it reads its terms back from its
+own code (`extcodecopy` at offset `0x2d`), and every one of its functions, `receive()` included, reverts
+`NotAClone()` anywhere the code is not exactly a clone carrying those arguments, so the implementation
+itself is inert. Three things follow when you change it:
+
+- **Checks go in `create`, not a constructor.** A clone's constructor never runs. Validate `config` and
+  the context in `create`, with your own custom errors, after the `NotLauncher()` line.
+- **Terms you add are args you add.** Append them to the `abi.encode(...)` in `create`, read them at the
+  matching offset in the module, and grow the module's `ARGS_LENGTH` to match — the clone check compares
+  the exact code length. Anything that changes after creation lives in the clone's own storage.
+- **A `receive()` behind a clone needs more than the 2,300-gas stipend.** It runs behind a
+  `delegatecall`, so a `transfer` or `send` into a clone whose implementation is cold reverts and the
+  sender keeps the coin. The splitter is not affected: it pays each leg with a 50,000-gas call.
 
 `create` is called once per token, by `PooLauncher`, with the token, the splitter that will pay this
 leg, the bonding curve, the token's creator, this leg's own share in basis points, and the launch's own

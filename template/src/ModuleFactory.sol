@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IPooModuleFactory, ModuleContext} from "@poomeme/pons/IPooModuleFactory.sol";
 import {ModuleManifestLib} from "@poomeme/pons/ModuleManifestLib.sol";
@@ -27,6 +28,7 @@ contract __MODULE__Factory is IPooModuleFactory {
 
     address public immutable developer;
     address public immutable launcher;
+    __MODULE__ public immutable implementation;
 
     event ModuleCreated(
         address indexed token, address indexed module, address indexed launcher, address splitter, uint16 bps
@@ -38,6 +40,7 @@ contract __MODULE__Factory is IPooModuleFactory {
         if (developer_ == address(0) || launcher_ == address(0)) revert ZeroAddress();
         developer = developer_;
         launcher = launcher_;
+        implementation = new __MODULE__();
     }
 
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
@@ -47,7 +50,7 @@ contract __MODULE__Factory is IPooModuleFactory {
     function create(ModuleContext calldata context, bytes calldata config) external returns (address module) {
         if (msg.sender != launcher) revert NotLauncher();
         address beneficiary = config.length == 0 ? developer : abi.decode(config, (address));
-        module = address(new __MODULE__(context.token, beneficiary));
+        module = Clones.cloneWithImmutableArgs(address(implementation), abi.encode(context.token, beneficiary));
         emit ModuleCreated(context.token, module, msg.sender, context.splitter, context.bps);
     }
 
